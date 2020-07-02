@@ -1,0 +1,219 @@
+---
+title: "Exploratory data analysis"
+author: "Irene N. Chang"
+date: "6/12/2020"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+output:
+  html_document: default
+  pdf_document: default
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+# What impacts students' performance?
+
+### About the data
+
+### Get the data
+Load the packages
+```{r message=FALSE}
+packages <- c("RCurl","data.table","tidyverse","reshape2", "ggplot2","gridExtra")
+sapply(packages, require, character.only=T)
+```
+What are the files?
+```{r}
+path<- getwd()
+path <- file.path(path, "Student")
+list.files(path)
+```
+Reading files 
+```{r}
+math <- fread(file.path(path,"student-mat.csv"), stringsAsFactors=T)
+port <- fread(file.path(path,"student-por.csv"), stringsAsFactors=T)
+```
+
+### Manipulate the data
+Any missing values?
+```{r, warning=FALSE}
+sum(is.na(data))
+```
+```{r, include=F}
+library(tidyverse)
+```
+Adding a variable
+```{r}
+math$average <- round(apply(select(math, G1, G2, G3), 1, mean), 2)
+port$average <- round(apply(select(port, G1, G2, G3), 1, mean), 2)
+
+math$subject<- rep("Math", nrow(math))
+port$subject<- rep("Portugese", nrow(port))
+```
+Combining two datasets
+```{r, tidy=T}
+data <- rbind(math, port)
+head(data)
+```
+#### Tidy variables
+Support categories
+```{r}
+data$support <- "0"
+data[schoolsup=="yes"& famsup=="yes"]$support<- "both"
+data[schoolsup=="yes"& famsup!="yes"]$support<- "school"
+data[schoolsup!="yes"& famsup=="yes"]$support<- "family"
+data[schoolsup!="yes"& famsup!="yes"]$support<- "none"
+data$support <- as.factor(data$support)
+data <- select(data, -c("schoolsup","famsup"))
+```
+Split the data set to analyze
+```{r, include=F}
+family<- select(data, c(5:10, 12, 22, 29:33))
+personal<- select(data, -c(5:10, 12, 22))
+```
+Family set
+```{r, echo=F}
+head(family)
+```
+Personal set
+```{r, echo=F}
+head(personal)
+```
+Is there a relationship between the three exams?
+
+```{r, echo=F, message=F, fig.width=10, fig.height=7, fig.align="center"}
+graph <- function(data, x, y){
+	a <- enquo(x)
+	b <- enquo(y)
+	dt<- enquo(data)
+	ggplot(data, aes(!!a, !!b))+ 
+		geom_smooth(method=lm,se=T, color="black")+
+		geom_jitter(alpha=0.5, color="blue")+
+		labs(title= deparse(substitute(data)), subtitle=nrow(data))
+}
+p1<- graph(math, G1, G3)
+p2<- graph(math, G2, G3)
+p3<- graph(port, G1, G3)
+p4<- graph(port, G2, G3)
+grid.arrange(p1, p2, p3, p4, ncol = 2, nrow = 2)
+```
+The first and second period grade both positively correlate with the final grade. In addition, the second period grade seems to be a slightly better indicator of the final grade.
+
+Therefore, knowing what affects G1 and G2 can help us learn what impacts that final results.
+
+In this part, we examine family-related factors.
+
+#### **1. FAMILY SIZE AND PARENTAL STATUS**
+Firstly, consider the family dataset. Let's see if family size affects a student's grade
+
+```{r, echo=F, fig.width=10, fig.height=7, fig.align="center"}
+family %>%
+	gather(key=test, value=grade, -c(1:8, 13)) %>%
+	ggplot(aes(x=famsize, y=grade, fill=famsize))+
+	geom_boxplot(alpha=0.5)+
+	geom_jitter(size=0.4, alpha=0.8)+
+	theme(legend.position="none")+
+	facet_wrap(~test)+
+	xlab("Family size")
+```
+
+How about parental status?
+
+```{r, echo=F, fig.width=10, fig.height=7, fig.align="center"}
+family %>%
+	gather(key=test, value=grade, -c(1:8, 13)) %>%
+	ggplot(aes(x=Pstatus, y=grade, fill=Pstatus))+
+	geom_boxplot(alpha=0.5)+
+	facet_wrap(~test)+ geom_jitter(size=0.4, alpha=0.8)+
+	theme(
+      legend.position="none",
+    )+
+	xlab("Parental status")
+```
+ 
+```{r, eval=F}
+t.test(average~famsize,data=family, var.equal=T, alternative="greater")
+##P-value=0.9772
+t.test(average~Pstatus,data=family, var.equal=T, alternative="greater")
+##Pvalue=0.3048
+```
+The difference is not significant.
+
+There isn't much difference in the average grade between a child whose parents are apart and that with parents living together. The same conclusion can be drawn between students living in family with more than 3 people and students living with fewer than or equal to 3 people. Hence, parental status and family size don't impact the grade in a significant way.
+
+Notice that there are a quite a few students with 0 mark in their final exam in family with parents living together, in comparison to students with separated parents. The same trend is observed in family of size greater than 3 as opposed to family with less than or equal to 3 members. We do a brief examination.
+
+```{r eval=T}
+prop.test(x=c(50,4), n=c(923,121), correct=T)
+prop.test(x=c(45,9), n=c(738,306), correct=T)
+```
+Regarding proportions, the proportion of students with 0 mark on the final exam whose parents live together does not differ significantly from that of students whose parents are separate. This is also true for both famsize categories.
+
+Through the graphs above, we can also see that students have greater difficuty in the second period than in the first one, which by far makes sense as the level of difficulty would usually goes up towards the end of year.
+
+Now that famzise and parental status don't contribute much to our finding, let's move on to the next elements.
+
+#### **2. MOTHER'S AND FATHER'S JOB**
+```{r, fig.align="center", echo=F, fig.width=12, fig.height=5}
+family %>%
+	select(Mjob, Fjob, average)%>%
+	gather(key=Parent, value=job, -average) %>%
+	ggplot(aes(job, average, fill=Parent))+
+	geom_boxplot(varwidth=T, alpha=0.5)+
+	xlab("Parents' jobs")+
+	scale_fill_discrete(labels=c("Father","Mother"))
+```
+```{r}
+kruskal.test(average~Mjob, family)
+pairwise.wilcox.test(family$average, family$Mjob, p.adjust.method = "BH")
+```
+The average scores differ according to the mother's jobs.
+Students whose mother is a **housemaker** tend to have lower score than all of their their counterparts, and those whose mother works in **health** industry tend to have higher scores than most of their counterparts.
+```{r}
+kruskal.test(average~Fjob, family)
+pairwise.wilcox.test(family$average, family$Fjob, p.adjust.method = "BH")
+```
+The average scores differ according to the father's jobs.Students whose father is a **teacher** tends to have higher average score than all others.
+
+#### **3. MOTHER'S AND FATHER'S EDUCATION**
+```{r, fig.align="center", echo=F, fig.width=12, fig.height=5}
+family %>%
+	select(Medu, Fedu, average) %>%
+	gather(key=Parent, value=education, -average) %>% 
+	ggplot(aes(x= factor(education), y= average, fill=Parent))+
+	geom_boxplot(varwidth=T, alpha=0.5)+
+	xlab("Parents' education")+
+	scale_fill_discrete(labels=c("Father","Mother"))
+```
+```{r}
+kruskal.test(average~Medu, family)
+pairwise.wilcox.test(family$average, family$Medu, p.adjust.method = "BH")
+```
+```{r}
+kruskal.test(average~Fedu, family)
+pairwise.wilcox.test(family$average, family$Fedu, p.adjust.method = "BH")
+```
+Students whose parents' education is at **primary** level tend to have significantly lover average score than others, and students whose parents reach **higher** education have significantly higher average score.
+
+#### **4. FAMILY RELATIONSHIP**
+```{r, fig.align="center", echo=F, fig.width=12, fig.height=5}
+family %>%
+	select(famrel,average) %>%
+	ggplot(aes(x=factor(famrel),y=average, fill=factor(famrel)))+
+	geom_violin(width=0.5, alpha=0.5)+
+	geom_boxplot(width=0.1, color="black", alpha=0.2)+
+	theme(legend.position="none")+
+	xlab("Family relationship")
+```
+```{r}
+kruskal.test(average~famrel, family)
+```
+P-value is large, indicating that family relationship doesn't imply much about a student's performance.
+
+### Takeaways:
+ 
+ - Parents' education and parents' jobs are main indicator of a student's overall performance. 
+ - Between the two factor, education factor confirms an common presumption that children will benefit from parents with a degree in higher education. Meanwhile, the job factor reveals more interesting information that the students who have mother working in health industry and father working as teachers tend to perform better overall.
